@@ -1,5 +1,6 @@
-import OpenAPI, { MarketInstrument } from '@tinkoff/invest-openapi-js-sdk';
+import OpenAPI, { MarketInstrument, MarketInstrumentList } from '@tinkoff/invest-openapi-js-sdk';
 import * as dotenv from "dotenv";
+import fs from 'fs';
 
 dotenv.config();
 const sandboxApiURL = 'https://api-invest.tinkoff.ru/openapi/sandbox/';
@@ -7,15 +8,34 @@ const socketURL = 'wss://api-invest.tinkoff.ru/openapi/md/v1/md-openapi/ws';
 const sandboxToken = process.env.SANDBOX_TOKEN; // токен для сандбокса
 const api = new OpenAPI({ apiURL: sandboxApiURL, secretToken: sandboxToken as string, socketURL });
 
+let writeStream = fs.createWriteStream('./secret.txt');
 
+const round = function (value:number, decimals:number) {
+    return Number.parseFloat(value.toFixed(decimals));
+}
+
+let printPrices = function(figi:string) { 
+    api.candle({ figi,  interval: '3min' }, (x) => {
+        // console.log('-------------------------');
+        // console.log('time: ' + (new Date()).toString());
+        // console.log(x.h);
+        
+        if(round(x.h, 0)/x.h - 1 < 0.05){
+            writeStream.write('h:' + x.h + ' l:'+ x.l + '\n');
+        }
+
+       
+    });
+};
 !(async function run() {
-    await api.sandboxClear(); // очищаем песочницу 
-    
-    //console.log(await api.searchOne({ ticker: 'AAPL' }));
-    const marketInstrument = await api.searchOne({ ticker: 'AAPL' }) as MarketInstrument;
-    const { figi } = marketInstrument;
-    await api.setCurrenciesBalance({ currency: 'USD', balance: 1000 }); // 1000$ на счет
-    await api.limitOrder({ operation: 'Buy', figi, lots: 1, price: 100 }); // Покупаем AAPL
-    await api.instrumentPortfolio({ figi }); // В портфеле ничего нет
-    console.log(await api.instrumentPortfolio({ figi })); // Сделка прошла моментально
-  })();
+    let stockList = await api.stocks() as MarketInstrumentList;
+    stockList.instruments.forEach(inst => writeStream.write(inst.ticker+';'));
+    writeStream.write('\n---------------------------------------------------\n');
+    stockList.instruments.forEach(x => {
+        printPrices(x.figi);
+    });
+})();  
+
+writeStream.on('finish', () => {
+    console.log('wrote all data to file');
+});
